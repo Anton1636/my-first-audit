@@ -73,6 +73,8 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils
 import { OracleUpgradeable } from "./OracleUpgradeable.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 import { IFlashLoanReceiver } from "../interfaces/IFlashLoanReceiver.sol";
+//should implement this interface
+//import { IThunderLoan } from "../interfaces/IThunderLoan.sol";
 
 contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, OracleUpgradeable {
     error ThunderLoan__NotAllowedToken(IERC20 token);
@@ -94,7 +96,8 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     mapping(IERC20 => AssetToken) public s_tokenToAssetToken;
 
     // The fee in WEI, it should have 18 decimals. Each flash loan takes a flat fee of the token price.
-    uint256 private s_feePrecision;
+    //@audit-info this should be a const or immutable
+    uint256 private s_feePrecision; // q why is a storage variable ?
     uint256 private s_flashLoanFee; // 0.3% ETH fee
 
     mapping(IERC20 token => bool currentlyFlashLoaning) private s_currentlyFlashLoaning;
@@ -137,6 +140,8 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     /*//////////////////////////////////////////////////////////////
                            EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+    // @audit TODO: change name to poolFactoryAddress
+    // @audit low - initalizers can be front run
     function initialize(address tswapAddress) external initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
@@ -145,13 +150,17 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         s_flashLoanFee = 3e15; // 0.3% ETH fee
     }
 
+    // @audit-info Where is the natspect?
     function deposit(IERC20 token, uint256 amount) external revertIfZero(amount) revertIfNotAllowedToken(token) {
         AssetToken assetToken = s_tokenToAssetToken[token];
         uint256 exchangeRate = assetToken.getExchangeRate();
         uint256 mintAmount = (amount * assetToken.EXCHANGE_RATE_PRECISION()) / exchangeRate;
         emit Deposit(msg.sender, token, amount);
         assetToken.mint(msg.sender, mintAmount);
+
+        // q why are we calculating the ffes of flash loans in the deposit?
         uint256 calculatedFee = getCalculatedFee(token, amount);
+        // q why are we updating the exchange rate?
         assetToken.updateExchangeRate(calculatedFee);
         token.safeTransferFrom(msg.sender, address(assetToken), amount);
     }
@@ -177,7 +186,8 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         assetToken.burn(msg.sender, amountOfAssetToken);
         assetToken.transferUnderlyingTo(msg.sender, amountUnderlying);
     }
-
+    
+    // @audit-info Where is the natspect?
     function flashloan(
         address receiverAddress,
         IERC20 token,
@@ -200,6 +210,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         }
 
         uint256 fee = getCalculatedFee(token, amount);
+        // @audit info  messed up the slither disable
         // slither-disable-next-line reentrancy-vulnerabilities-2 reentrancy-vulnerabilities-3
         assetToken.updateExchangeRate(fee);
 
@@ -208,6 +219,8 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         s_currentlyFlashLoaning[token] = true;
         assetToken.transferUnderlyingTo(receiverAddress, amount);
         // slither-disable-next-line unused-return reentrancy-vulnerabilities-2
+        // @follow up reentrancy
+        // @follow up do we need the return value of functionCall?
         receiverAddress.functionCall(
             abi.encodeCall(
                 IFlashLoanReceiver.executeOperation,
@@ -236,6 +249,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         token.safeTransferFrom(msg.sender, address(assetToken), amount);
     }
 
+    // @audit-info needs natspec
     function setAllowedToken(IERC20 token, bool allowed) external onlyOwner returns (AssetToken) {
         if (allowed) {
             if (address(s_tokenToAssetToken[token]) != address(0)) {
@@ -266,9 +280,11 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         if (newFee > s_feePrecision) {
             revert ThunderLoan__BadNewFee();
         }
+        // @audit-low must emit an event!
         s_flashLoanFee = newFee;
     }
 
+    // q is it ever unset poorly?
     function isAllowedToken(IERC20 token) public view returns (bool) {
         return address(s_tokenToAssetToken[token]) != address(0);
     }
