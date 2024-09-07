@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.20;
 
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract AssetToken is ERC20 {
     error AssetToken__onlyThunderLoan();
-    error AssetToken__ExhangeRateCanOnlyIncrease(uint256 oldExchangeRate, uint256 newExchangeRate);
+    error AssetToken__ExhangeRateCanOnlyIncrease(
+        uint256 oldExchangeRate,
+        uint256 newExchangeRate
+    );
     error AssetToken__ZeroAddress();
 
     using SafeERC20 for IERC20;
@@ -54,6 +57,7 @@ contract AssetToken is ERC20 {
         address thunderLoan,
         IERC20 underlying,
         //q where are the tokens stored?
+        // they are stored in the assetToken contract
         string memory assetName,
         string memory assetSymbol
     )
@@ -74,11 +78,15 @@ contract AssetToken is ERC20 {
         _burn(account, amount);
     }
 
-    function transferUnderlyingTo(address to, uint256 amount) external onlyThunderLoan {
+    function transferUnderlyingTo(
+        address to,
+        uint256 amount
+    ) external onlyThunderLoan {
         // weird erc20?
         // q what happens if USDC blacklist the thunderloan contract?
         // q what happens if USDC blacklist  the asset token contract?
         // @follow-up - weird ERC20s with USDC
+        // @audit-medium - the protocl will be frozen
         i_underlying.safeTransfer(to, amount);
     }
 
@@ -92,12 +100,15 @@ contract AssetToken is ERC20 {
         // newExchangeRate = 1 (4 + 0.5) / 4
         // newExchangeRate = 1.125
 
-        // q what is totalSupply is 0?
         // this breaks! is that an issue?
-        uint256 newExchangeRate = s_exchangeRate * (totalSupply() + fee) / totalSupply();
+        uint256 newExchangeRate = (s_exchangeRate * (totalSupply() + fee)) /
+            totalSupply();
 
         if (newExchangeRate <= s_exchangeRate) {
-            revert AssetToken__ExhangeRateCanOnlyIncrease(s_exchangeRate, newExchangeRate);
+            revert AssetToken__ExhangeRateCanOnlyIncrease(
+                s_exchangeRate,
+                newExchangeRate
+            );
         }
         s_exchangeRate = newExchangeRate;
         emit ExchangeRateUpdated(s_exchangeRate);
